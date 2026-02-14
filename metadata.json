@@ -1,0 +1,5 @@
+{
+  "name": "EstateSync AI",
+  "description": "An intelligent real estate assistant that extracts property units and client requirements from WhatsApp chat exports and matches them using advanced AI scoring.",
+  "requestFramePermissions": []
+}
