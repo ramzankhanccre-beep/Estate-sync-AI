@@ -1,9 +1,9 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { EntityType, ExtractionResult, Match, PropertyEntity } from "../types";
+import { EntityType, Match, PropertyEntity } from "../types";
 
 const getAIClient = () => {
-  return new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  return new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 };
 
 const EXTRACTION_SCHEMA = {
@@ -20,9 +20,10 @@ const EXTRACTION_SCHEMA = {
           price: { type: Type.NUMBER, description: 'Numeric price or budget' },
           size: { type: Type.STRING, description: 'Bedrooms or square footage' },
           contact: { type: Type.STRING, description: 'Phone number found' },
-          rawText: { type: Type.STRING, description: 'Original snippet' },
+          timestamp: { type: Type.STRING, description: 'Date and Time of message if found, e.g. 15/05/23 10:45' },
+          rawText: { type: Type.STRING, description: 'The EXACT original message text' },
         },
-        required: ['type', 'propertyType', 'community', 'price', 'contact', 'rawText'],
+        required: ['type', 'propertyType', 'community', 'price', 'contact', 'rawText', 'timestamp'],
       }
     }
   }
@@ -42,17 +43,21 @@ const MATCHING_SCHEMA = {
   }
 };
 
-export const extractEntities = async (chatText: string): Promise<ExtractionResult> => {
+export const extractEntitiesFromChunk = async (chunkText: string, groupName: string): Promise<PropertyEntity[]> => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `
-      Analyze the following WhatsApp chat export. 
-      Identify properties being offered (UNITS) and clients looking for properties (REQUIREMENTS).
-      Extract structured data. WhatsApp formats vary, handle [DD/MM/YY, HH:MM:SS] and MM/DD/YY formats.
+      Analyze this WhatsApp chat snippet from the group: "${groupName}". 
+      Identify properties offered (UNITS) and client leads (REQUIREMENTS).
       
-      Chat Text:
-      ${chatText.slice(0, 30000)} // Basic chunking to fit context
+      IMPORTANT:
+      1. Look for the Date and Time prefixing the messages (e.g., "[15/05/23, 10:45:00]").
+      2. If multiple messages are in a chunk, extract the correct timestamp for each.
+      3. Capture the EXACT raw message text for each entity.
+      
+      Snippet:
+      ${chunkText}
     `,
     config: {
       responseMimeType: "application/json",
@@ -61,19 +66,11 @@ export const extractEntities = async (chatText: string): Promise<ExtractionResul
   });
 
   const rawData = JSON.parse(response.text || '{"entities":[]}');
-  const units: PropertyEntity[] = [];
-  const requirements: PropertyEntity[] = [];
-
-  rawData.entities.forEach((entity: any, index: number) => {
-    const formatted: PropertyEntity = {
-      ...entity,
-      id: `${entity.type.toLowerCase()}-${Date.now()}-${index}`,
-    };
-    if (entity.type === 'UNIT') units.push(formatted);
-    else requirements.push(formatted);
-  });
-
-  return { units, requirements };
+  return rawData.entities.map((entity: any, index: number) => ({
+    ...entity,
+    id: `${entity.type.toLowerCase()}-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
+    groupName: groupName
+  }));
 };
 
 export const matchEntities = async (units: PropertyEntity[], requirements: PropertyEntity[]): Promise<Match[]> => {
@@ -83,21 +80,15 @@ export const matchEntities = async (units: PropertyEntity[], requirements: Prope
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
     contents: `
-      You are a Real Estate Matchmaking AI. 
-      Compare these available Units against these Client Requirements.
+      Compare these Units against Lead Requirements. Match them based on Community, Budget/Price, and Size.
       
-      UNITS:
-      ${JSON.stringify(units)}
+      UNITS (Inventory):
+      ${JSON.stringify(units.slice(-50))}
       
-      REQUIREMENTS:
-      ${JSON.stringify(requirements)}
+      REQUIREMENTS (Leads):
+      ${JSON.stringify(requirements.slice(-50))}
       
-      Rules:
-      - Score 10: 100% match (Same community, type, and price within budget).
-      - Score 5-9: Mostly matching, but price slightly outside budget.
-      - Score 1-4: Same community but unit size or price gap is significant.
-      
-      Return a JSON array of top matches.
+      Return a JSON array of high-potential matches.
     `,
     config: {
       responseMimeType: "application/json",

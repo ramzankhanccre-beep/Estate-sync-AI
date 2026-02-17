@@ -5,57 +5,70 @@ import { WhatsAppIcon } from './Icons';
 
 interface Props {
   entity: PropertyEntity;
+  onClick?: (entity: PropertyEntity) => void;
 }
 
-const PropertyCard: React.FC<Props> = ({ entity }) => {
+const PropertyCard: React.FC<Props> = ({ entity, onClick }) => {
   const isUnit = entity.type === EntityType.UNIT;
 
-  const handleWhatsApp = () => {
+  const handleWhatsApp = (e: React.MouseEvent) => {
+    e.stopPropagation();
     const phone = entity.contact.replace(/\D/g, '');
     window.open(`https://wa.me/${phone}`, '_blank');
   };
 
-  const handleCall = () => {
-    window.location.href = `tel:${entity.contact}`;
-  };
-
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <span className={`inline-block px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider mb-2 ${
-            isUnit ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 
-            'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+    <div 
+      onClick={() => onClick?.(entity)}
+      className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm hover:shadow-xl transition-all cursor-pointer group hover:border-indigo-400 relative overflow-hidden flex flex-col h-full"
+    >
+      {/* Header Info */}
+      <div className="flex justify-between items-start mb-3">
+        <div className="flex flex-wrap gap-2">
+          <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
+            isUnit ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30'
           }`}>
-            {isUnit ? 'For Sale/Rent' : 'Buyer/Tenant'}
+            {isUnit ? 'Unit' : 'Requirement'}
           </span>
-          <h4 className="text-lg font-bold leading-tight line-clamp-1">{entity.community}</h4>
-          <p className="text-slate-500 dark:text-slate-400 text-sm">{entity.propertyType} • {entity.size}</p>
+          <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400 truncate max-w-[100px]">
+            {entity.groupName}
+          </span>
         </div>
-        <div className="text-right">
-          <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
-            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED', maximumFractionDigits: 0 }).format(entity.price)}
-          </p>
+        
+        {/* TIME BADGE */}
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-700/50">
+          <svg className="w-3 h-3 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-[10px] font-black text-slate-600 dark:text-slate-300 whitespace-nowrap">
+            {entity.timestamp || 'No Date'}
+          </span>
         </div>
-      </div>
-      
-      <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-3 mb-4 italic text-sm text-slate-600 dark:text-slate-300 border-l-4 border-slate-200 dark:border-slate-700">
-        "{entity.rawText.length > 120 ? entity.rawText.substring(0, 120) + '...' : entity.rawText}"
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex-1">
+        <h4 className="text-lg font-black leading-tight group-hover:text-indigo-600 transition-colors mb-1">
+          {entity.community}
+        </h4>
+        <p className="text-slate-500 dark:text-slate-400 text-xs font-bold mb-3">
+          {entity.propertyType} • {entity.size}
+        </p>
+        
+        <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-3 mb-4 italic text-xs text-slate-600 dark:text-slate-300 border-l-4 border-slate-200 dark:border-slate-700 line-clamp-3">
+          "{entity.rawText}"
+        </div>
+      </div>
+
+      <div className="mt-auto flex items-center justify-between gap-4 pt-4 border-t border-slate-100 dark:border-slate-700/50">
+        <p className="text-xl font-black text-indigo-600 dark:text-indigo-400">
+          {entity.price === 0 ? 'TBA' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED', maximumFractionDigits: 0 }).format(entity.price)}
+        </p>
         <button 
           onClick={handleWhatsApp}
-          className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-sm font-medium transition-colors"
+          className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-emerald-100 dark:shadow-none active:scale-95"
         >
-          <WhatsAppIcon />
+          <WhatsAppIcon className="w-4 h-4" />
           WhatsApp
-        </button>
-        <button 
-          onClick={handleCall}
-          className="px-4 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm font-medium rounded-lg transition-colors"
-        >
-          Call
         </button>
       </div>
     </div>

@@ -13,23 +13,41 @@ export interface PropertyEntity {
   size: string;
   contact: string;
   rawText: string;
+  groupName: string;
+  timestamp: string; // New: To store message date/time
 }
 
 export interface Match {
   unitId: string;
   requirementId: string;
-  score: number; // 1-10
+  score: number;
   reasoning: string;
 }
 
-export interface ExtractionResult {
-  units: PropertyEntity[];
-  requirements: PropertyEntity[];
+export type TaskStatus = 'pending' | 'processing' | 'success' | 'error';
+
+export interface ExtractionTask {
+  id: string;
+  fileId: string;
+  chunkIndex: number;
+  status: TaskStatus;
+  progress: number;
+  content: string;
+  groupName: string;
+  error?: string;
+}
+
+export interface ChatFile {
+  id: string;
+  name: string;
+  groupName: string;
+  rawContent: string;
+  tasksCount: number;
 }
 
 export type ProcessingStep = 
   | 'idle'
-  | 'reading'
+  | 'uploading'
   | 'extracting'
   | 'matching'
   | 'completed'
@@ -43,13 +61,11 @@ export interface User {
 
 export interface AppState {
   user: User | null;
+  files: ChatFile[];
+  tasks: ExtractionTask[];
   units: PropertyEntity[];
   requirements: PropertyEntity[];
   matches: Match[];
-  rawChat: string;
   processingStep: ProcessingStep;
-  currentChunk: number;
-  totalChunks: number;
-  error?: string;
   theme: 'light' | 'dark';
 }
