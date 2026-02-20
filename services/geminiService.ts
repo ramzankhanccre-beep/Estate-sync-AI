@@ -3,7 +3,9 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { EntityType, Match, PropertyEntity } from "../types";
 
 const getAIClient = () => {
-  return new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  const customKey = localStorage.getItem('estate_sync_custom_api_key');
+  const apiKey = customKey || process.env.GEMINI_API_KEY || process.env.API_KEY;
+  return new GoogleGenAI({ apiKey: apiKey as string });
 };
 
 const EXTRACTION_SCHEMA = {

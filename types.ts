@@ -68,4 +68,5 @@ export interface AppState {
   matches: Match[];
   processingStep: ProcessingStep;
   theme: 'light' | 'dark';
+  customApiKey?: string;
 }

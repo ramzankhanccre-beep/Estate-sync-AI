@@ -9,7 +9,8 @@ import {
   MoonIcon, 
   SunIcon, 
   SearchIcon, 
-  UploadIcon 
+  UploadIcon,
+  SettingsIcon
 } from './components/Icons';
 import { AppState, EntityType, PropertyEntity, Match, User, ChatFile, ExtractionTask } from './types';
 import { extractEntitiesFromChunk, matchEntities } from './services/geminiService';
@@ -34,9 +35,10 @@ const App: React.FC = () => {
     matches: [],
     processingStep: 'idle',
     theme: 'light',
+    customApiKey: localStorage.getItem('estate_sync_custom_api_key') || undefined
   });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'tasks' | 'matches' | 'units' | 'requirements'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'tasks' | 'matches' | 'units' | 'requirements' | 'settings'>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEntity, setSelectedEntity] = useState<PropertyEntity | null>(null);
   const [currentChunkInfo, setCurrentChunkInfo] = useState({ current: 0, total: 0 });
@@ -88,6 +90,12 @@ const App: React.FC = () => {
   }, [state.theme]);
 
   const toggleTheme = () => setState(prev => ({ ...prev, theme: prev.theme === 'light' ? 'dark' : 'light' }));
+  
+  const handleSaveApiKey = (key: string) => {
+    localStorage.setItem('estate_sync_custom_api_key', key);
+    setState(prev => ({ ...prev, customApiKey: key }));
+  };
+
   const handleAuthSuccess = (user: User) => setState(prev => ({ ...prev, user }));
   const handleLogout = () => {
     authService.logout();
@@ -260,6 +268,7 @@ const App: React.FC = () => {
     { id: 'matches', label: 'Success Pool', icon: <MatchesIcon /> },
     { id: 'units', label: 'Units', icon: <UnitsIcon /> },
     { id: 'requirements', label: 'Leads', icon: <RequirementsIcon /> },
+    { id: 'settings', label: 'Settings', icon: <SettingsIcon /> },
   ];
 
   if (!state.user) return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
@@ -457,6 +466,67 @@ const App: React.FC = () => {
                 {filteredRequirements.map(req => (
                   <PropertyCard key={req.id} entity={req} onClick={setSelectedEntity} />
                 ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="max-w-2xl mx-auto space-y-8">
+              <div className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-200 dark:border-slate-800">
+                <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-2">Platform Settings</h2>
+                <p className="text-slate-500 font-medium mb-8">Configure your AI engine and personal preferences.</p>
+                
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-3">Gemini API Key (Paid Assets)</label>
+                    <div className="relative">
+                      <input 
+                        type="password"
+                        placeholder="Enter your Google AI Studio API Key..."
+                        value={state.customApiKey || ''}
+                        onChange={(e) => handleSaveApiKey(e.target.value)}
+                        className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl text-sm font-medium focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all"
+                      />
+                      {state.customApiKey && (
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                          <span className="text-[10px] font-black text-emerald-500 uppercase">Active</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-3 text-xs text-slate-400 leading-relaxed">
+                      By providing your own API key, you enable higher rate limits and access to advanced models like Gemini 3 Pro. 
+                      Your key is stored locally in your browser and never sent to our servers.
+                    </p>
+                  </div>
+
+                  <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
+                    <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Interface Theme</label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <button 
+                        onClick={() => setState(prev => ({ ...prev, theme: 'light' }))}
+                        className={`flex items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all ${state.theme === 'light' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600' : 'border-slate-100 dark:border-slate-800 text-slate-500'}`}
+                      >
+                        <SunIcon className="w-5 h-5" />
+                        <span className="font-bold text-sm">Light</span>
+                      </button>
+                      <button 
+                        onClick={() => setState(prev => ({ ...prev, theme: 'dark' }))}
+                        className={`flex items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all ${state.theme === 'dark' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600' : 'border-slate-100 dark:border-slate-800 text-slate-500'}`}
+                      >
+                        <MoonIcon className="w-5 h-5" />
+                        <span className="font-bold text-sm">Dark</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-indigo-600/5 dark:bg-indigo-400/5 p-8 rounded-[2.5rem] border border-indigo-100 dark:border-indigo-900/20">
+                <h4 className="text-indigo-600 dark:text-indigo-400 font-black text-sm uppercase tracking-widest mb-2">Usage Tip</h4>
+                <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
+                  If you encounter "Quota Exceeded" errors during batch processing, consider upgrading to a paid tier in Google AI Studio and entering your key above.
+                </p>
               </div>
             </div>
           )}
