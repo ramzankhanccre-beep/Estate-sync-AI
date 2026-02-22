@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { ExtractionTask, ChatFile } from '../types';
+import { ExtractionTask, ChatFile, Platform } from '../types';
+import { WhatsAppIcon, TelegramIcon } from './Icons';
 
 interface Props {
   tasks: ExtractionTask[];
@@ -75,8 +76,10 @@ const TaskBoard: React.FC<Props> = ({ tasks, files, onRunTask, onRunAll, isProce
           <div key={file.id} className="bg-white dark:bg-slate-800 rounded-[2rem] border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col shadow-sm hover:border-indigo-200 dark:hover:border-indigo-900 transition-colors">
             <div className="p-5 border-b border-slate-100 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/30 flex justify-between items-center">
               <div className="flex items-center gap-3 overflow-hidden">
-                <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 flex-shrink-0">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                  file.platform === Platform.TELEGRAM ? 'bg-sky-100 text-sky-600 dark:bg-sky-900/30' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30'
+                }`}>
+                  {file.platform === Platform.TELEGRAM ? <TelegramIcon className="w-4 h-4" /> : <WhatsAppIcon className="w-4 h-4" />}
                 </div>
                 <h4 className="font-black truncate text-[10px] text-slate-800 dark:text-slate-100 uppercase tracking-tight">{file.groupName}</h4>
               </div>

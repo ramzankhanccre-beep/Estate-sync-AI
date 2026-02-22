@@ -1,7 +1,7 @@
 
 import React from 'react';
-import { PropertyEntity, EntityType } from '../types';
-import { WhatsAppIcon } from './Icons';
+import { PropertyEntity, EntityType, Platform } from '../types';
+import { WhatsAppIcon, TelegramIcon } from './Icons';
 
 interface Props {
   entity: PropertyEntity;
@@ -10,11 +10,22 @@ interface Props {
 
 const PropertyCard: React.FC<Props> = ({ entity, onClick }) => {
   const isUnit = entity.type === EntityType.UNIT;
+  const isTelegram = entity.platform === Platform.TELEGRAM;
 
-  const handleWhatsApp = (e: React.MouseEvent) => {
+  const handleJumpToChat = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const phone = entity.contact.replace(/\D/g, '');
-    window.open(`https://wa.me/${phone}`, '_blank');
+    if (isTelegram) {
+      const username = entity.username || entity.contact.replace('@', '');
+      // Telegram deep link with pre-filled message if possible
+      // Note: Telegram doesn't support pre-filling in the same way as WhatsApp via URL for bots/users easily without specific bot API,
+      // but we can open the chat.
+      const url = username.includes('t.me') ? username : `https://t.me/${username}`;
+      window.open(url, '_blank');
+    } else {
+      const phone = entity.contact.replace(/\D/g, '');
+      const text = encodeURIComponent(`Hi, I'm interested in your property: ${entity.community} (${entity.propertyType}). Is it still available?`);
+      window.open(`https://wa.me/${phone}?text=${text}`, '_blank');
+    }
   };
 
   return (
@@ -64,11 +75,15 @@ const PropertyCard: React.FC<Props> = ({ entity, onClick }) => {
           {entity.price === 0 ? 'TBA' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AED', maximumFractionDigits: 0 }).format(entity.price)}
         </p>
         <button 
-          onClick={handleWhatsApp}
-          className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-emerald-100 dark:shadow-none active:scale-95"
+          onClick={handleJumpToChat}
+          className={`flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg active:scale-95 ${
+            isTelegram 
+              ? 'bg-sky-500 hover:bg-sky-600 text-white shadow-sky-100 dark:shadow-none' 
+              : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-100 dark:shadow-none'
+          }`}
         >
-          <WhatsAppIcon className="w-4 h-4" />
-          WhatsApp
+          {isTelegram ? <TelegramIcon className="w-4 h-4" /> : <WhatsAppIcon className="w-4 h-4" />}
+          {isTelegram ? 'Telegram' : 'WhatsApp'}
         </button>
       </div>
     </div>

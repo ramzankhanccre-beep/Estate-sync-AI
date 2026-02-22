@@ -4,6 +4,11 @@ export enum EntityType {
   REQUIREMENT = 'REQUIREMENT'
 }
 
+export enum Platform {
+  WHATSAPP = 'WHATSAPP',
+  TELEGRAM = 'TELEGRAM'
+}
+
 export interface PropertyEntity {
   id: string;
   type: EntityType;
@@ -14,7 +19,9 @@ export interface PropertyEntity {
   contact: string;
   rawText: string;
   groupName: string;
-  timestamp: string; // New: To store message date/time
+  timestamp: string;
+  platform: Platform;
+  username?: string; // For Telegram deep linking
 }
 
 export interface Match {
@@ -34,6 +41,7 @@ export interface ExtractionTask {
   progress: number;
   content: string;
   groupName: string;
+  platform: Platform;
   error?: string;
 }
 
@@ -43,6 +51,7 @@ export interface ChatFile {
   groupName: string;
   rawContent: string;
   tasksCount: number;
+  platform: Platform;
 }
 
 export type ProcessingStep = 

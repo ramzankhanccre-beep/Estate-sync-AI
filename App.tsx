@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   DashboardIcon, 
   MatchesIcon, 
@@ -10,11 +11,14 @@ import {
   SunIcon, 
   SearchIcon, 
   UploadIcon,
-  SettingsIcon
+  SettingsIcon,
+  WhatsAppIcon,
+  TelegramIcon
 } from './components/Icons';
-import { AppState, EntityType, PropertyEntity, Match, User, ChatFile, ExtractionTask } from './types';
+import { AppState, EntityType, PropertyEntity, Match, User, ChatFile, ExtractionTask, Platform } from './types';
 import { extractEntitiesFromChunk, matchEntities } from './services/geminiService';
 import PropertyCard from './components/PropertyCard';
+import PropertyTable from './components/PropertyTable';
 import MatchCard from './components/MatchCard';
 import AuthScreen from './components/AuthScreen';
 import TaskBoard from './components/TaskBoard';
@@ -38,9 +42,12 @@ const App: React.FC = () => {
     customApiKey: localStorage.getItem('estate_sync_custom_api_key') || undefined
   });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'tasks' | 'matches' | 'units' | 'requirements' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'tasks' | 'matches' | 'units' | 'requirements' | 'settings' | 'insights'>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterPlatform, setFilterPlatform] = useState<Platform | 'all'>('all');
+  const [filterGroup, setFilterGroup] = useState<string>('all');
   const [selectedEntity, setSelectedEntity] = useState<PropertyEntity | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [currentChunkInfo, setCurrentChunkInfo] = useState({ current: 0, total: 0 });
   const isBatchRunning = useRef(false);
   const tasksRef = useRef<ExtractionTask[]>([]);
@@ -50,40 +57,51 @@ const App: React.FC = () => {
     tasksRef.current = state.tasks;
   }, [state.tasks]);
 
-  // Persistent State Loading
+  // Persistent State Loading (Cloud)
   useEffect(() => {
     if (state.user) {
-      const saved = localStorage.getItem(`estate_sync_v2_${state.user.id}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setState(prev => ({ 
-          ...prev, 
-          units: parsed.units || [], 
-          requirements: parsed.requirements || [],
-          matches: parsed.matches || [],
-          files: parsed.files || [],
-          tasks: (parsed.tasks || []).map((t: any) => ({ 
-            ...t, 
-            status: t.status === 'processing' ? 'pending' : t.status,
-            progress: t.status === 'success' ? 100 : 0
-          }))
-        }));
-      }
+      fetch(`/api/data/${state.user.id}`)
+        .then(res => res.json())
+        .then(parsed => {
+          if (parsed && Object.keys(parsed).length > 0) {
+            setState(prev => ({ 
+              ...prev, 
+              units: parsed.units || [], 
+              requirements: parsed.requirements || [],
+              matches: parsed.matches || [],
+              files: parsed.files || [],
+              tasks: (parsed.tasks || []).map((t: any) => ({ 
+                ...t, 
+                status: t.status === 'processing' ? 'pending' : t.status,
+                progress: t.status === 'success' ? 100 : 0
+              }))
+            }));
+            if (parsed.viewMode) setViewMode(parsed.viewMode);
+          }
+        })
+        .catch(err => console.error("Failed to load cloud data", err));
     }
   }, [state.user?.id]);
 
-  // Persistent State Saving
+  // Persistent State Saving (Cloud)
   useEffect(() => {
     if (state.user) {
-      localStorage.setItem(`estate_sync_v2_${state.user.id}`, JSON.stringify({
+      const dataToSave = {
         units: state.units,
         requirements: state.requirements,
         matches: state.matches,
         files: state.files,
-        tasks: state.tasks
-      }));
+        tasks: state.tasks,
+        viewMode
+      };
+      
+      fetch(`/api/data/${state.user.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dataToSave)
+      }).catch(err => console.error("Failed to save cloud data", err));
     }
-  }, [state.units, state.requirements, state.matches, state.files, state.tasks, state.user?.id]);
+  }, [state.units, state.requirements, state.matches, state.files, state.tasks, state.user?.id, viewMode]);
 
   useEffect(() => {
     state.theme === 'dark' ? document.documentElement.classList.add('dark') : document.documentElement.classList.remove('dark');
@@ -114,20 +132,49 @@ const App: React.FC = () => {
     try {
       for (let i = 0; i < uploadedFiles.length; i++) {
         const file = uploadedFiles[i];
+        const isJson = file.name.endsWith('.json');
+        const platform = isJson ? Platform.TELEGRAM : Platform.WHATSAPP;
         const text = await file.text();
-        let groupName = file.name.replace('.txt', '').replace('WhatsApp Chat with ', '');
+        
+        let groupName = '';
+        let contentToProcess = '';
+
+        if (isJson) {
+          try {
+            const data = JSON.parse(text);
+            groupName = data.name || file.name.replace('.json', '');
+            // For Telegram JSON, we might want to extract text from messages
+            // Telegram export format: { name: "Group Name", messages: [ { text: "...", from: "...", date: "..." }, ... ] }
+            const messages = data.messages || [];
+            contentToProcess = messages
+              .filter((m: any) => m.type === 'message' && m.text)
+              .map((m: any) => {
+                const msgText = Array.isArray(m.text) ? m.text.map((t: any) => typeof t === 'string' ? t : t.text).join('') : m.text;
+                return `[${m.date}] ${m.from}: ${msgText}`;
+              })
+              .join('\n');
+          } catch (e) {
+            console.error("Failed to parse Telegram JSON", e);
+            continue;
+          }
+        } else {
+          groupName = file.name.replace('.txt', '').replace('WhatsApp Chat with ', '');
+          contentToProcess = text;
+        }
+
         const fileId = `file-${Date.now()}-${i}`;
         const fileChunks: string[] = [];
-        for (let j = 0; j < text.length; j += CHUNK_SIZE) {
-          fileChunks.push(text.substring(j, j + CHUNK_SIZE));
+        for (let j = 0; j < contentToProcess.length; j += CHUNK_SIZE) {
+          fileChunks.push(contentToProcess.substring(j, j + CHUNK_SIZE));
         }
 
         newFiles.push({
           id: fileId,
           name: file.name,
           groupName: groupName,
-          rawContent: text,
-          tasksCount: fileChunks.length
+          rawContent: contentToProcess,
+          tasksCount: fileChunks.length,
+          platform
         });
 
         fileChunks.forEach((chunk, index) => {
@@ -138,7 +185,8 @@ const App: React.FC = () => {
             status: 'pending',
             progress: 0,
             content: chunk,
-            groupName: groupName
+            groupName: groupName,
+            platform
           });
         });
       }
@@ -183,7 +231,7 @@ const App: React.FC = () => {
       const taskObj = tasksRef.current.find(t => t.id === taskId);
       if (!taskObj) return;
 
-      const extracted = await extractEntitiesFromChunk(taskObj.content, taskObj.groupName);
+      const extracted = await extractEntitiesFromChunk(taskObj.content, taskObj.groupName, taskObj.platform);
       
       // Stage 2: AI Parsing Complete (80%)
       setState(prev => ({
@@ -246,26 +294,38 @@ const App: React.FC = () => {
 
   const filteredUnits = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    return state.units.filter(u => 
-      u.community.toLowerCase().includes(q) || 
-      u.propertyType.toLowerCase().includes(q) ||
-      u.groupName.toLowerCase().includes(q)
-    );
-  }, [state.units, searchQuery]);
+    return state.units.filter(u => {
+      const matchesSearch = u.community.toLowerCase().includes(q) || 
+        u.propertyType.toLowerCase().includes(q) ||
+        u.groupName.toLowerCase().includes(q);
+      const matchesPlatform = filterPlatform === 'all' || u.platform === filterPlatform;
+      const matchesGroup = filterGroup === 'all' || u.groupName === filterGroup;
+      return matchesSearch && matchesPlatform && matchesGroup;
+    });
+  }, [state.units, searchQuery, filterPlatform, filterGroup]);
 
   const filteredRequirements = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    return state.requirements.filter(r => 
-      r.community.toLowerCase().includes(q) || 
-      r.propertyType.toLowerCase().includes(q) ||
-      r.groupName.toLowerCase().includes(q)
-    );
-  }, [state.requirements, searchQuery]);
+    return state.requirements.filter(r => {
+      const matchesSearch = r.community.toLowerCase().includes(q) || 
+        r.propertyType.toLowerCase().includes(q) ||
+        r.groupName.toLowerCase().includes(q);
+      const matchesPlatform = filterPlatform === 'all' || r.platform === filterPlatform;
+      const matchesGroup = filterGroup === 'all' || r.groupName === filterGroup;
+      return matchesSearch && matchesPlatform && matchesGroup;
+    });
+  }, [state.requirements, searchQuery, filterPlatform, filterGroup]);
+
+  const uniqueGroups = useMemo(() => {
+    const groups = new Set(state.files.map(f => f.groupName));
+    return Array.from(groups);
+  }, [state.files]);
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
     { id: 'tasks', label: 'Pipeline', icon: <ChatIcon /> },
-    { id: 'matches', label: 'Success Pool', icon: <MatchesIcon /> },
+    { id: 'insights', label: 'Insights', icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
+    { id: 'matches', label: 'Matches', icon: <MatchesIcon /> },
     { id: 'units', label: 'Units', icon: <UnitsIcon /> },
     { id: 'requirements', label: 'Leads', icon: <RequirementsIcon /> },
     { id: 'settings', label: 'Settings', icon: <SettingsIcon /> },
@@ -337,70 +397,121 @@ const App: React.FC = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl text-sm font-medium focus:ring-2 focus:ring-indigo-600 transition-all"
               />
+              <div className="flex items-center gap-3">
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                  <button 
+                    onClick={() => setViewMode('grid')}
+                    className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                  >
+                    <DashboardIcon className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onClick={() => setViewMode('list')}
+                    className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                  </button>
+                </div>
+                <select 
+                  value={filterPlatform}
+                  onChange={(e) => setFilterPlatform(e.target.value as any)}
+                  className="bg-slate-100 dark:bg-slate-800 border-none rounded-xl text-[10px] font-black uppercase tracking-widest px-4 py-2 focus:ring-2 focus:ring-indigo-600 cursor-pointer"
+                >
+                  <option value="all">All Platforms</option>
+                  <option value={Platform.WHATSAPP}>WhatsApp</option>
+                  <option value={Platform.TELEGRAM}>Telegram</option>
+                </select>
+                <select 
+                  value={filterGroup}
+                  onChange={(e) => setFilterGroup(e.target.value)}
+                  className="bg-slate-100 dark:bg-slate-800 border-none rounded-xl text-[10px] font-black uppercase tracking-widest px-4 py-2 focus:ring-2 focus:ring-indigo-600 cursor-pointer max-w-[150px]"
+                >
+                  <option value="all">All Groups</option>
+                  {uniqueGroups.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl text-sm font-black cursor-pointer transition-all shadow-xl shadow-indigo-100 dark:shadow-none active:scale-95">
               <UploadIcon className="w-5 h-5" />
               Ingest Chats
-              <input type="file" accept=".txt" multiple onChange={handleFileUpload} className="hidden" />
+              <input type="file" accept=".txt,.json" multiple onChange={handleFileUpload} className="hidden" />
             </label>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 pb-32 bg-slate-50 dark:bg-slate-950">
-          {activeTab === 'dashboard' && (
-            <div className="space-y-10">
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                {[
-                  { label: 'Inventory', count: state.units.length, color: 'emerald', icon: <UnitsIcon /> },
-                  { label: 'Leads', count: state.requirements.length, color: 'blue', icon: <RequirementsIcon /> },
-                  { label: 'Sync Success', count: state.matches.length, color: 'amber', icon: <MatchesIcon /> },
-                  { label: 'Pipeline', count: state.tasks.filter(t => t.status === 'pending').length, color: 'indigo', icon: <ChatIcon /> },
-                ].map((stat, i) => (
-                  <div key={i} className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-lg transition-all group">
-                    <div className={`w-14 h-14 rounded-2xl bg-${stat.color}-50 dark:bg-${stat.color}-900/20 flex items-center justify-center text-${stat.color}-600 dark:text-${stat.color}-400 mb-6 group-hover:scale-110 transition-transform`}>
-                      {React.cloneElement(stat.icon as React.ReactElement<any>, { className: 'w-7 h-7' })}
+          <AnimatePresence mode="wait">
+            <motion.div 
+              key={activeTab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="flex-1 overflow-y-auto p-8 pb-32 bg-slate-50 dark:bg-slate-950"
+            >
+              {activeTab === 'dashboard' && (
+                <div className="space-y-10">
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {[
+                      { label: 'Inventory', count: state.units.length, color: 'emerald', icon: <UnitsIcon /> },
+                      { label: 'Leads', count: state.requirements.length, color: 'blue', icon: <RequirementsIcon /> },
+                      { label: 'Sync Success', count: state.matches.length, color: 'amber', icon: <MatchesIcon /> },
+                      { label: 'Pipeline', count: state.tasks.filter(t => t.status === 'pending').length, color: 'indigo', icon: <ChatIcon /> },
+                    ].map((stat, i) => (
+                      <motion.div 
+                        key={i} 
+                        whileHover={{ y: -5 }}
+                        className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden"
+                      >
+                        <div className={`absolute top-0 right-0 w-32 h-32 bg-${stat.color}-500/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-${stat.color}-500/10 transition-colors`} />
+                        <div className={`w-14 h-14 rounded-2xl bg-${stat.color}-50 dark:bg-${stat.color}-900/20 flex items-center justify-center text-${stat.color}-600 dark:text-${stat.color}-400 mb-6 group-hover:scale-110 transition-transform`}>
+                          {React.cloneElement(stat.icon as React.ReactElement<any>, { className: 'w-7 h-7' })}
+                        </div>
+                        <p className="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-widest">{stat.label}</p>
+                        <p className="text-4xl font-black mt-1 text-slate-900 dark:text-white">{stat.count}</p>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {state.tasks.some(t => t.status === 'pending') && (
+                    <motion.div 
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-[3rem] p-10 text-white flex flex-col md:flex-row items-center justify-between gap-8 shadow-2xl shadow-indigo-100 dark:shadow-none relative overflow-hidden"
+                    >
+                      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10" />
+                      <div className="max-w-xl relative z-10">
+                        <h2 className="text-3xl font-black mb-3">Sync Queue Pending</h2>
+                        <p className="text-indigo-100 font-medium leading-relaxed opacity-90">We have detected {state.tasks.filter(t => t.status === 'pending').length} data chunks waiting for extraction. Launch the pipeline to begin the automated matching process.</p>
+                      </div>
+                      <button 
+                        onClick={() => setActiveTab('tasks')}
+                        className="px-12 py-5 bg-white text-indigo-600 rounded-2xl font-black shadow-2xl hover:bg-slate-50 transition-all active:scale-95 whitespace-nowrap relative z-10"
+                      >
+                        Open Sync Pipeline
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {state.matches.length > 0 && (
+                    <div className="space-y-8">
+                      <h3 className="text-2xl font-black mb-8 flex items-center gap-4">
+                        <span className="w-1.5 h-8 bg-indigo-600 rounded-full"></span>
+                        Recent High-Confidence Matches
+                      </h3>
+                      <div className="grid gap-6">
+                        {state.matches.slice(0, 3).map((match, i) => {
+                          const unit = state.units.find(u => u.id === match.unitId);
+                          const req = state.requirements.find(r => r.id === match.requirementId);
+                          if (!unit || !req) return null;
+                          return <MatchCard key={i} match={match} unit={unit} requirement={req} />;
+                        })}
+                      </div>
                     </div>
-                    <p className="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-widest">{stat.label}</p>
-                    <p className="text-4xl font-black mt-1 text-slate-900 dark:text-white">{stat.count}</p>
-                  </div>
-                ))}
-              </div>
-
-              {state.tasks.some(t => t.status === 'pending') && (
-                <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-[3rem] p-10 text-white flex flex-col md:flex-row items-center justify-between gap-8 shadow-2xl shadow-indigo-100 dark:shadow-none">
-                  <div className="max-w-xl">
-                    <h2 className="text-3xl font-black mb-3">Sync Queue Pending</h2>
-                    <p className="text-indigo-100 font-medium leading-relaxed opacity-90">We have detected {state.tasks.filter(t => t.status === 'pending').length} data chunks waiting for extraction. Launch the pipeline to begin the automated matching process.</p>
-                  </div>
-                  <button 
-                    onClick={() => setActiveTab('tasks')}
-                    className="px-12 py-5 bg-white text-indigo-600 rounded-2xl font-black shadow-2xl hover:bg-slate-50 transition-all active:scale-95 whitespace-nowrap"
-                  >
-                    Open Sync Pipeline
-                  </button>
+                  )}
                 </div>
               )}
-
-              {state.matches.length > 0 && (
-                <div>
-                  <h3 className="text-2xl font-black mb-8 flex items-center gap-4">
-                    <span className="w-1.5 h-8 bg-indigo-600 rounded-full"></span>
-                    Recent High-Confidence Matches
-                  </h3>
-                  <div className="space-y-6">
-                    {state.matches.slice(0, 3).map((match, i) => {
-                      const unit = state.units.find(u => u.id === match.unitId);
-                      const req = state.requirements.find(r => r.id === match.requirementId);
-                      if (!unit || !req) return null;
-                      return <MatchCard key={i} match={match} unit={unit} requirement={req} />;
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           {activeTab === 'tasks' && (
             <TaskBoard 
@@ -410,6 +521,60 @@ const App: React.FC = () => {
               onRunAll={runAllTasks} 
               isProcessing={state.processingStep === 'extracting'} 
             />
+          )}
+
+          {activeTab === 'insights' && (
+            <div className="space-y-10">
+              <div className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-200 dark:border-slate-800">
+                <h2 className="text-3xl font-black text-slate-900 dark:text-white mb-2">Group Insights</h2>
+                <p className="text-slate-500 font-medium mb-8">Deep dive into your community performance and lead generation.</p>
+                
+                <div className="grid md:grid-cols-3 gap-6">
+                  {uniqueGroups.map(group => {
+                    const groupUnits = state.units.filter(u => u.groupName === group);
+                    const groupReqs = state.requirements.filter(r => r.groupName === group);
+                    const groupPlatform = state.files.find(f => f.groupName === group)?.platform;
+                    
+                    return (
+                      <div key={group} className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-700">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${groupPlatform === Platform.TELEGRAM ? 'bg-sky-100 text-sky-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                              {groupPlatform === Platform.TELEGRAM ? <TelegramIcon /> : <WhatsAppIcon />}
+                            </div>
+                            <h3 className="font-black text-slate-900 dark:text-white truncate max-w-[150px]">{group}</h3>
+                          </div>
+                          <span className="text-[10px] font-black px-2 py-1 bg-white dark:bg-slate-700 rounded-lg border border-slate-100 dark:border-slate-600 text-slate-400 uppercase">
+                            {groupPlatform}
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Units</p>
+                            <p className="text-2xl font-black text-emerald-600">{groupUnits.length}</p>
+                          </div>
+                          <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Leads</p>
+                            <p className="text-2xl font-black text-blue-600">{groupReqs.length}</p>
+                          </div>
+                        </div>
+                        
+                        <button 
+                          onClick={() => {
+                            setFilterGroup(group);
+                            setActiveTab('units');
+                          }}
+                          className="w-full mt-4 py-3 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-600 hover:text-white rounded-xl text-xs font-black transition-all"
+                        >
+                          View Group Inventory
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           )}
 
           {activeTab === 'matches' && (
@@ -450,23 +615,37 @@ const App: React.FC = () => {
 
           {activeTab === 'units' && (
             <div className="space-y-6">
-              <h2 className="text-3xl font-black mb-8 text-slate-900 dark:text-slate-100">Market Inventory</h2>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {filteredUnits.map(unit => (
-                  <PropertyCard key={unit.id} entity={unit} onClick={setSelectedEntity} />
-                ))}
+              <div className="flex items-center justify-between">
+                <h2 className="text-3xl font-black text-slate-900 dark:text-slate-100">Market Inventory</h2>
+                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{filteredUnits.length} Units Found</p>
               </div>
+              {viewMode === 'grid' ? (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {filteredUnits.map(unit => (
+                    <PropertyCard key={unit.id} entity={unit} onClick={setSelectedEntity} />
+                  ))}
+                </div>
+              ) : (
+                <PropertyTable entities={filteredUnits} onClick={setSelectedEntity} />
+              )}
             </div>
           )}
 
           {activeTab === 'requirements' && (
             <div className="space-y-6">
-              <h2 className="text-3xl font-black mb-8 text-slate-900 dark:text-slate-100">Client Leads</h2>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {filteredRequirements.map(req => (
-                  <PropertyCard key={req.id} entity={req} onClick={setSelectedEntity} />
-                ))}
+              <div className="flex items-center justify-between">
+                <h2 className="text-3xl font-black text-slate-900 dark:text-slate-100">Client Leads</h2>
+                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{filteredRequirements.length} Leads Found</p>
               </div>
+              {viewMode === 'grid' ? (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {filteredRequirements.map(req => (
+                    <PropertyCard key={req.id} entity={req} onClick={setSelectedEntity} />
+                  ))}
+                </div>
+              ) : (
+                <PropertyTable entities={filteredRequirements} onClick={setSelectedEntity} />
+              )}
             </div>
           )}
 
@@ -519,6 +698,19 @@ const App: React.FC = () => {
                       </button>
                     </div>
                   </div>
+
+                  <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-1">Cloud Sync Status</label>
+                        <p className="text-[10px] text-slate-500 font-medium">Your data is automatically synced to the cloud.</p>
+                      </div>
+                      <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1.5 rounded-full border border-emerald-100 dark:border-emerald-800">
+                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                        <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Connected</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -530,7 +722,8 @@ const App: React.FC = () => {
               </div>
             </div>
           )}
-        </div>
+        </motion.div>
+      </AnimatePresence>
       </main>
 
       {/* Mobile Control Bar */}

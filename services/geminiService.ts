@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { EntityType, Match, PropertyEntity } from "../types";
+import { EntityType, Match, PropertyEntity, Platform } from "../types";
 
 const getAIClient = () => {
   const customKey = localStorage.getItem('estate_sync_custom_api_key');
@@ -21,9 +21,10 @@ const EXTRACTION_SCHEMA = {
           community: { type: Type.STRING, description: 'Community or building name' },
           price: { type: Type.NUMBER, description: 'Numeric price or budget' },
           size: { type: Type.STRING, description: 'Bedrooms or square footage' },
-          contact: { type: Type.STRING, description: 'Phone number found' },
-          timestamp: { type: Type.STRING, description: 'Date and Time of message if found, e.g. 15/05/23 10:45' },
+          contact: { type: Type.STRING, description: 'Phone number or @username found' },
+          timestamp: { type: Type.STRING, description: 'Date and Time of message if found' },
           rawText: { type: Type.STRING, description: 'The EXACT original message text' },
+          username: { type: Type.STRING, description: 'Telegram @username if available' },
         },
         required: ['type', 'propertyType', 'community', 'price', 'contact', 'rawText', 'timestamp'],
       }
@@ -45,18 +46,19 @@ const MATCHING_SCHEMA = {
   }
 };
 
-export const extractEntitiesFromChunk = async (chunkText: string, groupName: string): Promise<PropertyEntity[]> => {
+export const extractEntitiesFromChunk = async (chunkText: string, groupName: string, platform: Platform): Promise<PropertyEntity[]> => {
   const ai = getAIClient();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `
-      Analyze this WhatsApp chat snippet from the group: "${groupName}". 
+      Analyze this ${platform} chat snippet from the group: "${groupName}". 
       Identify properties offered (UNITS) and client leads (REQUIREMENTS).
       
       IMPORTANT:
-      1. Look for the Date and Time prefixing the messages (e.g., "[15/05/23, 10:45:00]").
+      1. Look for the Date and Time prefixing the messages.
       2. If multiple messages are in a chunk, extract the correct timestamp for each.
       3. Capture the EXACT raw message text for each entity.
+      4. For Telegram, extract @usernames if they appear as the sender or in text.
       
       Snippet:
       ${chunkText}
@@ -71,7 +73,8 @@ export const extractEntitiesFromChunk = async (chunkText: string, groupName: str
   return rawData.entities.map((entity: any, index: number) => ({
     ...entity,
     id: `${entity.type.toLowerCase()}-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
-    groupName: groupName
+    groupName: groupName,
+    platform: platform
   }));
 };
 
