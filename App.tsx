@@ -25,6 +25,7 @@ import TaskBoard from './components/TaskBoard';
 import SourceModal from './components/SourceModal';
 import ProcessingOverlay from './components/ProcessingOverlay';
 import AnnouncementBar from './components/AnnouncementBar';
+import FormModal from './components/FormModal';
 import { authService } from './services/authService';
 
 const CHUNK_SIZE = 2500;
@@ -48,6 +49,7 @@ const App: React.FC = () => {
   const [filterPlatform, setFilterPlatform] = useState<Platform | 'all'>('all');
   const [filterGroup, setFilterGroup] = useState<string>('all');
   const [selectedEntity, setSelectedEntity] = useState<PropertyEntity | null>(null);
+  const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [currentChunkInfo, setCurrentChunkInfo] = useState({ current: 0, total: 0 });
   const isBatchRunning = useRef(false);
@@ -346,6 +348,12 @@ const App: React.FC = () => {
       
       <SourceModal entity={selectedEntity} onClose={() => setSelectedEntity(null)} />
       
+      <FormModal 
+        isOpen={isFormModalOpen} 
+        onClose={() => setIsFormModalOpen(false)} 
+        url="https://n8n.cubecity.realestate/form/578cb615-1436-4465-9c37-8a81a67e57b3" 
+      />
+      
       <aside className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col sticky top-0 h-screen hidden lg:flex">
         <div className="p-8">
           <div className="flex items-center gap-3">
@@ -387,7 +395,10 @@ const App: React.FC = () => {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        <AnnouncementBar message="Hello World!" />
+        <AnnouncementBar 
+          message="get a call back in 30 seconds" 
+          onClick={() => setIsFormModalOpen(true)}
+        />
         <header className="h-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-8 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-shrink-0 z-10">
           <div className="flex-1 max-w-xl">
             <div className="relative group">
