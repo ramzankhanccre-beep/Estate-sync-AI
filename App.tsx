@@ -24,6 +24,7 @@ import AuthScreen from './components/AuthScreen';
 import TaskBoard from './components/TaskBoard';
 import SourceModal from './components/SourceModal';
 import ProcessingOverlay from './components/ProcessingOverlay';
+import AnnouncementBar from './components/AnnouncementBar';
 import { authService } from './services/authService';
 
 const CHUNK_SIZE = 2500;
@@ -386,6 +387,7 @@ const App: React.FC = () => {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+        <AnnouncementBar message="Hello World!" />
         <header className="h-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-8 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-shrink-0 z-10">
           <div className="flex-1 max-w-xl">
             <div className="relative group">
